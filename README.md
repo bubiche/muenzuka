@@ -2,7 +2,7 @@
 
 The configuration of a one-box homelab: a mini PC running Ubuntu Server, set up with Ansible, running its services in Docker Compose, and backed up nightly with restic.
 
-This is the shareable part of a private repo, exported by a script. Personal values (names, addresses, tailnet, repo URL) live only in the private inventory, and the plans, runbook and logs stay private. Comments that mention `RUNBOOK.md` or `homelab_ideas.md` point to those private notes.
+This is the shareable part of a private repo, exported by a script and synced automatically by a GitHub Action on every change (including merged Renovate updates). Personal values (names, addresses, tailnet, repo URL) live only in the private inventory, and the plans, runbook and logs stay private. Comments that mention `RUNBOOK.md` or `homelab_ideas.md` point to those private notes.
 
 ## What it does
 
