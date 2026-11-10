@@ -1,0 +1,9 @@
+# HTTPS for each web UI through `tailscale serve`: one port per app
+# (homelab_ideas.md "Making everything through Tailscale actually true").
+# Each gets a real certificate at https://{{ homelab_ts_fqdn }}:<port>.
+# Planned: Homepage 443, Dockge 8443, Home Assistant 8444, Vaultwarden 8445,
+# Shopee tracker 8446, AdGuard 8447, ntfy 8448.
+tailscale_serve:
+  - { port: 8445, target: "http://127.0.0.1:8081" }   # Vaultwarden
+  - { port: 8447, target: "http://127.0.0.1:3000" }   # AdGuard Home
+  - { port: 8448, target: "http://127.0.0.1:2586" }   # ntfy

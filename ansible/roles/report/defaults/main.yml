@@ -1,0 +1,7 @@
+# Weekly ntfy report (scripts/report.py), after the Sunday 05:00 pull.
+report_oncalendar: "Sun 06:00"
+
+# The box's own ntfy (compose.yml), published locally. Tailnet-only, so the
+# topic isn't a secret. The iPhone subscribes to this topic on
+# https://<homelab_ts_fqdn>:8448.
+report_ntfy_url: "http://127.0.0.1:2586/safehouse"

@@ -1,0 +1,13 @@
+# rclone from rclone.org, pinned to the Mac's version (Homebrew). Ubuntu's own
+# rclone (1.60.1) is too old. Bump both together; checksum from
+# https://downloads.rclone.org/v<version>/SHA256SUMS
+backup_rclone_version: "1.76.0"
+backup_rclone_sha256: "9db7ee9b725bce7cdd195b9183449a4c6fb93cad3e6578e70b87c0bc7f6062e9"
+
+# Nightly backup (scripts/backup.sh). Saturdays also prune + check, the 1st of
+# the month also reads 2% of the data, all inside the same run.
+backup_oncalendar: "*-*-* 02:00"
+# Samba's share (phase 11) lives here; created now so the documents repo has a
+# path to back up.
+backup_documents_path: /srv/files/documents
+backup_documents_owner: "{{ homelab_user }}"

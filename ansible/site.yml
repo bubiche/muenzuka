@@ -1,0 +1,14 @@
+# The whole box as code. Run from ansible/:
+#   ansible-playbook site.yml --check --diff   # dry run, changes nothing
+#   ansible-playbook site.yml                  # apply
+# `hosts: all` so the weekly ansible-pull (phase 9) can run the same file.
+- name: safehouse
+  hosts: all
+  roles:
+    - base
+    - backup
+    - docker
+    - tailscale
+    - samba
+    - pull
+    - report

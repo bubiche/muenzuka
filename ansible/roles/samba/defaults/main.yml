@@ -1,0 +1,16 @@
+# The one Samba user. Its password is set by hand (sudo smbpasswd -a <user>),
+# kept in Vaultwarden, and never in git or the Vault.
+samba_user: "{{ homelab_user }}"
+
+# Same folder as backup_documents_path (created by the backup role, backed up
+# nightly to the documents repo; .recycle is excluded there).
+samba_documents_path: /srv/files/documents
+
+# Only the tailnet (IPv4 and IPv6) and the box itself. ufw already blocks the
+# LAN on 445; this is a second lock in Samba itself.
+samba_hosts_allow: "100.64.0.0/10 fd7a:115c:a1e0::/48 127.0.0.1 ::1"
+
+# Files deleted over SMB go to <share>/.recycle; this timer removes the ones
+# deleted more than samba_recycle_keep_days ago.
+samba_recycle_keep_days: 30
+samba_recycle_oncalendar: "Sun 05:00"

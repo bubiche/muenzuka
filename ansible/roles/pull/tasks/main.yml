@@ -1,0 +1,118 @@
+# Weekly self-update: the box clones the repo with a read-only deploy key and
+# runs site.yml against itself (scripts/pull.sh). The same playbook as from
+# the Mac; the Mac stays the way to apply a change right away.
+- name: Ansible and git are installed (for the weekly pull)
+  ansible.builtin.apt:
+    name: [ansible, git]
+    state: present
+    install_recommends: false
+
+- name: GitHub's SSH host keys are pinned
+  ansible.builtin.known_hosts:
+    path: /etc/ssh/ssh_known_hosts
+    name: github.com
+    key: "github.com {{ item }}"
+  loop: "{{ pull_github_host_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[0] }}"
+
+# The key is made on the box and never leaves it. Add the .pub as a READ-ONLY
+# deploy key on GitHub (repo Settings → Deploy keys).
+- name: Deploy key exists (read-only on GitHub)
+  ansible.builtin.command: >-
+    ssh-keygen -q -t ed25519 -N "" -C "safehouse homelab-pull (read-only)"
+    -f /etc/homelab/deploy_key
+  args:
+    creates: /etc/homelab/deploy_key
+
+- name: Read the deploy key's public half
+  ansible.builtin.command: cat /etc/homelab/deploy_key.pub
+  register: pull_deploy_pub
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Deploy key to add on GitHub (read-only)
+  ansible.builtin.debug:
+    msg: "{{ pull_deploy_pub.stdout | default('(created on the real run)', true) }}"
+
+- name: Ansible Vault password on the box (from the Mac's copy)
+  ansible.builtin.copy:
+    src: "{{ pull_vault_pass_src }}"
+    dest: /etc/homelab/vault-pass
+    owner: root
+    group: root
+    mode: "0600"
+  when: pull_vault_pass_src is file
+  no_log: true
+
+- name: /var/lib/homelab exists (root only; holds the clone)
+  ansible.builtin.file:
+    path: /var/lib/homelab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Pull settings (repo URL)
+  ansible.builtin.copy:
+    dest: /etc/homelab/pull.env
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role pull, from the inventory).
+      REPO_URL={{ pull_repo_url }}
+
+- name: Pull script is installed
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/pull.sh"
+    dest: /usr/local/sbin/homelab-pull
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Weekly pull (service)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-pull.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role pull).
+      [Unit]
+      Description=Apply the homelab repo's main branch to this box
+      Wants=network-online.target
+      After=network-online.target docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/homelab-pull
+      TimeoutStartSec=1h
+  notify: daemon-reload
+
+- name: Weekly pull (timer)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-pull.timer
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role pull).
+      [Unit]
+      Description=Weekly self-update from the homelab repo
+
+      [Timer]
+      OnCalendar={{ pull_oncalendar }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify: daemon-reload
+
+- name: Apply unit changes before enabling the pull timer
+  ansible.builtin.meta: flush_handlers
+
+# Off until a manual run has passed (pull_timer_enabled in defaults).
+- name: Weekly pull timer
+  ansible.builtin.systemd_service:
+    name: homelab-pull.timer
+    enabled: "{{ pull_timer_enabled }}"
+    state: "{{ 'started' if pull_timer_enabled else 'stopped' }}"
+  ignore_errors: "{{ ansible_check_mode }}"

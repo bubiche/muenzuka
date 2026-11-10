@@ -1,0 +1,74 @@
+# Docker Engine from Docker's own repo (Ubuntu's docker.io lags behind).
+# Updates arrive daily through unattended-upgrades ("origin=Docker,label=Docker CE"
+# in the base role).
+- name: Docker's apt key is downloaded
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Read the key's fingerprint
+  ansible.builtin.command: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
+  register: docker_key
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: The key is Docker's real key
+  ansible.builtin.assert:
+    that: docker_gpg_fingerprint in docker_key.stdout
+    fail_msg: "Unexpected fingerprint on /etc/apt/keyrings/docker.asc; refusing to add the repo."
+  when: not ansible_check_mode or docker_key.rc == 0
+
+- name: Docker's apt repo
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role docker).
+      Types: deb
+      URIs: https://download.docker.com/linux/ubuntu
+      Suites: {{ ansible_facts['distribution_release'] }}
+      Components: stable
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/docker.asc
+
+- name: /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+# Written before the install, so dockerd's first start already uses it.
+- name: dockerd settings
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    content: |
+      {
+        "live-restore": true,
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+  notify: restart docker
+
+- name: Docker Engine and the compose plugin are installed
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+  # In a dry run the repo isn't added yet, so the packages can't be found.
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Docker is enabled and running
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Port 53 freed for AdGuard
+  ansible.builtin.import_tasks: dns.yml
+
+- name: Compose stack
+  ansible.builtin.import_tasks: stacks.yml

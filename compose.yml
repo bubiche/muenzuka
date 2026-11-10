@@ -1,0 +1,66 @@
+# All Docker services on the box. Ansible copies this file to /opt/homelab/
+# (with a .env holding TS_FQDN, the box's Tailscale name) and runs `docker compose up -d` there; never run compose from a clone on the box.
+# Rules (homelab_ideas.md): exact image versions, restart: unless-stopped,
+# web UIs on 127.0.0.1 only (reached through `tailscale serve`), except DNS on 53.
+name: homelab
+
+services:
+  adguard:
+    image: adguard/adguardhome:v0.107.80
+    container_name: adguard
+    restart: unless-stopped
+    ports:
+      # DNS for the LAN and the tailnet. Docker-published ports bypass ufw.
+      - "53:53/tcp"
+      - "53:53/udp"
+      # Web UI (setup wizard and admin), loopback only; tailscale serve → :8447.
+      - "127.0.0.1:3000:3000/tcp"
+    volumes:
+      - ./adguard/work:/opt/adguardhome/work
+      - ./adguard/conf:/opt/adguardhome/conf
+
+  vaultwarden:
+    image: vaultwarden/server:1.37.5
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      DOMAIN: "https://${TS_FQDN:?set in /opt/homelab/.env by Ansible}:8445"
+      # Closed after the real account was created (phase 10). To add a family
+      # member: set "true", apply, they sign up, set "false", apply.
+      SIGNUPS_ALLOWED: "false"
+      PASSWORD_HINTS_ALLOWED: "false"
+      SHOW_PASSWORD_HINT: "false"
+      # ADMIN_TOKEN unset: the admin page stays off unless needed.
+    ports:
+      # Loopback only; tailscale serve → https://<TS_FQDN>:8445
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ./vaultwarden/data:/data
+
+  ntfy:
+    image: binwiederhier/ntfy:v2.37.2
+    container_name: ntfy
+    command: serve
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Singapore
+      # Must match the iPhone app's default server exactly.
+      NTFY_BASE_URL: "https://${TS_FQDN:?set in /opt/homelab/.env by Ansible}:8448"
+      # iPhone: ntfy.sh only relays a wake-up (no message content) to Apple's
+      # push service; the app then fetches the message from here over Tailscale.
+      NTFY_UPSTREAM_BASE_URL: "https://ntfy.sh"
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_CACHE_DURATION: "168h"
+      # No logins: reachable only over the tailnet (and from the box itself).
+    ports:
+      # Loopback only; tailscale serve → https://<TS_FQDN>:8448
+      - "127.0.0.1:2586:80"
+    volumes:
+      - ./ntfy:/var/lib/ntfy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eq '\"healthy\"\\s*:\\s*true'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

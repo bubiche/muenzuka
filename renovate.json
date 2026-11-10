@@ -1,0 +1,42 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Update PRs for pinned versions. Merged updates reach the box with the Sunday 05:00 pull (README: Weekly self-update).",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Singapore",
+  "labels": ["dependencies"],
+  "ignoreTests": true,
+  "packageRules": [
+    {
+      "description": "Small updates merge themselves once the release is 3 days old (no CI: ignoreTests).",
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Vaultwarden holds the passwords: minor releases can migrate the database, so only patches merge themselves.",
+      "matchPackageNames": ["vaultwarden/server"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false
+    },
+    {
+      "description": "rclone: the pinned checksum must change in the same PR, and the Mac should match.",
+      "matchPackageNames": ["rclone/rclone"],
+      "automerge": false,
+      "prBodyNotes": [
+        "**Before merging:** set `backup_rclone_sha256` to the `rclone-v{{newVersion}}-linux-amd64.deb` line of https://downloads.rclone.org/v{{newVersion}}/SHA256SUMS (push it to this branch), and run `brew upgrade rclone` on the Mac so both match."
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "rclone .deb pinned in the backup role",
+      "managerFilePatterns": ["/^ansible/roles/backup/defaults/main\\.yml$/"],
+      "matchStrings": ["backup_rclone_version: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "rclone/rclone",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    }
+  ]
+}

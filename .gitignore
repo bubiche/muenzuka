@@ -1,0 +1,16 @@
+# secrets and live data: never commit (see homelab_ideas.md "Tracking the setup in git")
+.env
+data/
+*/data/
+AdGuardHome.yaml
+*.pem
+*.key
+secrets.yaml
+.storage/
+rclone.conf
+*.vault-pass
+.vault_pass*
+# local clutter
+.DS_Store
+*.retry
+__pycache__/

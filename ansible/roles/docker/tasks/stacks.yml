@@ -1,0 +1,41 @@
+# Compose stack in /opt/homelab (data folders live next to compose.yml there).
+- name: /opt/homelab exists
+  ansible.builtin.file:
+    path: /opt/homelab
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# compose.yml reads ${TS_FQDN} from here; it fails loudly if this is missing.
+- name: Compose variables (.env)
+  ansible.builtin.copy:
+    dest: /opt/homelab/.env
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role docker, from the inventory).
+      TS_FQDN={{ docker_ts_fqdn }}
+
+- name: compose.yml from the repo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../compose.yml"
+    dest: /opt/homelab/compose.yml
+    mode: "0644"
+
+- name: Services are up
+  community.docker.docker_compose_v2:
+    project_src: /opt/homelab
+    pull: missing
+    remove_orphans: true
+    state: present
+  # In a dry run compose.yml isn't on the box yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# Vaultwarden's data (database, rsa_key.pem) is readable by root only.
+- name: Vaultwarden data is private
+  ansible.builtin.file:
+    path: /opt/homelab/vaultwarden/data
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"

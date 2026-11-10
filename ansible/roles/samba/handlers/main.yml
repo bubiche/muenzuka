@@ -1,0 +1,4 @@
+# smbd re-reads smb.conf on reload; existing connections stay up.
+- name: reload smbd
+  ansible.builtin.command: systemctl try-reload-or-restart smbd.service
+  changed_when: true

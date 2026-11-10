@@ -1,0 +1,50 @@
+# Managed by Ansible (homelab repo, role samba). Edit the repo, not this file.
+# Check with: testparm -s
+[global]
+   server role = standalone server
+   server string = {{ inventory_hostname }}
+   workgroup = WORKGROUP
+   # SMB over 445 only: no NetBIOS (nmbd is disabled), no SMB1/SMB2.
+   disable netbios = yes
+   smb ports = 445
+   server min protocol = SMB3
+   hosts allow = {{ samba_hosts_allow }}
+   map to guest = never
+   restrict anonymous = 2
+   # No printers.
+   load printers = no
+   printing = bsd
+   printcap name = /dev/null
+   disable spoolss = yes
+   logging = systemd
+   log level = 1
+
+   # Macs: the same modules on every share (Macs pick settings from the first
+   # share they open; mixing shares with and without fruit causes errors).
+   # fruit must come before streams_xattr.
+   vfs objects = catia fruit streams_xattr
+   fruit:metadata = stream
+   fruit:model = MacSamba
+   fruit:posix_rename = yes
+   fruit:veto_appledouble = no
+   fruit:nfs_aces = no
+   fruit:wipe_intentionally_left_blank_rfork = yes
+   fruit:delete_empty_adfiles = yes
+
+[documents]
+   path = {{ samba_documents_path }}
+   valid users = {{ samba_user }}
+   read only = no
+   create mask = 0640
+   directory mask = 0750
+   # Per-share vfs objects replaces the global list, so repeat it + recycle.
+   vfs objects = catia fruit streams_xattr recycle
+   recycle:repository = .recycle
+   recycle:keeptree = yes
+   recycle:versions = yes
+   recycle:touch = yes
+   recycle:touch_mtime = yes
+   # Mac sidecar and temp files are deleted for real (Samba bug 14115 floods
+   # the log with ._ files otherwise). Deleting inside .recycle is final.
+   recycle:exclude = ._*,.DS_Store,*.tmp,~$*
+   recycle:exclude_dir = .recycle

@@ -1,0 +1,17 @@
+# From the inventory (homelab_* host vars).
+base_user: "{{ homelab_user }}"
+base_lan_subnet: "{{ homelab_lan_subnet }}"
+
+# Headless display: the connector the TV/monitor used (see RUNBOOK phase 4).
+base_display_connector: HDMI-A-3
+base_display_mode: 1920x1080@60e
+
+# Weekly maintenance windows (box's local time, Asia/Singapore).
+base_snap_refresh_timer: "sun,03:00"
+base_reboot_oncalendar: "Sun 04:00"
+
+# Firewall (phase 6). After any rule change, test SSH over Tailscale AND the
+# LAN before closing the session.
+base_ufw_enabled: true
+base_sunshine_tcp_ports: [47984, 47989, 48010]
+base_sunshine_udp_ports: "47998:48000"

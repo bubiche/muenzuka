@@ -1,0 +1,44 @@
+# Free port 53 for AdGuard without breaking the box's own DNS (AdGuard Home's
+# Docker wiki): turn off resolved's stub listener, and point /etc/resolv.conf at
+# resolved's real server list. 1.1.1.1 keeps the box resolving while AdGuard
+# is down or being recreated.
+- name: resolved drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: "0755"
+
+- name: resolved uses AdGuard first, Cloudflare as backup, no stub listener
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/adguardhome.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role docker).
+      [Resolve]
+      DNS=127.0.0.1 1.1.1.1
+      DNSStubListener=no
+  register: docker_resolved_conf
+
+- name: /etc/resolv.conf lists the real servers, not the stub
+  ansible.builtin.file:
+    src: /run/systemd/resolve/resolv.conf
+    dest: /etc/resolv.conf
+    state: link
+    force: true
+  register: docker_resolv_link
+
+# Restart now (not as a handler): the image pull below needs working DNS.
+- name: resolved picks up the change
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted
+  when: docker_resolved_conf.changed or docker_resolv_link.changed
+
+- name: The box still resolves names
+  ansible.builtin.command: getent hosts download.docker.com
+  changed_when: false
+  check_mode: false
+  retries: 5
+  delay: 3
+  register: docker_dns_check
+  until: docker_dns_check.rc == 0

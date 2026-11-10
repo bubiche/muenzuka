@@ -1,0 +1,22 @@
+# Needs "HTTPS Certificates" turned on in the Tailscale admin console (DNS page).
+- name: Read Tailscale's own name
+  ansible.builtin.command: tailscale status --json
+  register: ts_status
+  changed_when: false
+  check_mode: false
+
+- name: Read the current serve config
+  ansible.builtin.command: tailscale serve status --json
+  register: ts_serve
+  changed_when: false
+  check_mode: false
+
+- name: Each web UI is served over HTTPS on its own port
+  vars:
+    fqdn: "{{ (ts_status.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
+    web: "{{ (ts_serve.stdout | default('{}', true) | from_json).Web | default({}) }}"
+    current: "{{ web[fqdn ~ ':' ~ item.port].Handlers['/'].Proxy | default('') if (fqdn ~ ':' ~ item.port) in web else '' }}"
+  ansible.builtin.command: tailscale serve --bg --https={{ item.port }} {{ item.target }}
+  when: current != item.target
+  loop: "{{ tailscale_serve }}"
+  changed_when: true

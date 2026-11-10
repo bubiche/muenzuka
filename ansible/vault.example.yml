@@ -1,0 +1,10 @@
+# Template for group_vars/all/vault.yml, which is encrypted with ansible-vault
+# and committed only in encrypted form. This file sits outside group_vars/ so
+# Ansible never loads these dummy values. Real values never go in plain text.
+#   ansible-vault create group_vars/all/vault.yml    # first time
+#   ansible-vault edit   group_vars/all/vault.yml    # later changes
+vault_hc_alive_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+vault_hc_backup_critical_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+vault_hc_backup_documents_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+vault_hc_ansible_pull_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
+vault_restic_password: "the password already in /etc/restic/password"

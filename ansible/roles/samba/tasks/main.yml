@@ -1,0 +1,94 @@
+# Samba on the host (not Docker), so it gets security fixes from apt.
+# Reachable over Tailscale only: ufw allows tailscale0, and smb.conf's
+# hosts allow lists only tailnet addresses.
+- name: Samba is installed
+  ansible.builtin.apt:
+    name: samba
+    state: present
+    install_recommends: false
+
+- name: smb.conf
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: testparm -s %s
+  notify: reload smbd
+
+- name: Read the installed services
+  ansible.builtin.service_facts:
+
+# NetBIOS is disabled in smb.conf; nmbd would only exit with an error.
+- name: nmbd is stopped and disabled
+  ansible.builtin.systemd_service:
+    name: nmbd
+    enabled: false
+    state: stopped
+  when: "'nmbd.service' in ansible_facts.services"
+
+- name: smbd is enabled and running
+  ansible.builtin.systemd_service:
+    name: smbd
+    enabled: true
+    state: started
+  # On a first dry run Samba isn't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# --- Recycle bin: empty files deleted more than N days ago --------------------
+- name: Recycle cleanup (service)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/samba-recycle-cleanup.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role samba).
+      [Unit]
+      Description=Remove files deleted over SMB more than {{ samba_recycle_keep_days }} days ago
+
+      [Service]
+      Type=oneshot
+      Nice=10
+      IOSchedulingClass=idle
+      ExecStart=/bin/sh -c 'd={{ samba_documents_path }}/.recycle; [ -d "$d" ] || exit 0; find "$d" -mindepth 1 -type f -mtime +{{ samba_recycle_keep_days }} -delete; find "$d" -mindepth 1 -type d -empty -delete'
+  notify: daemon-reload
+
+- name: Recycle cleanup (timer)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/samba-recycle-cleanup.timer
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role samba).
+      [Unit]
+      Description=Weekly recycle-bin cleanup for Samba shares
+
+      [Timer]
+      OnCalendar={{ samba_recycle_oncalendar }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify: daemon-reload
+
+- name: Apply unit changes before enabling the recycle timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Recycle cleanup timer is enabled
+  ansible.builtin.systemd_service:
+    name: samba-recycle-cleanup.timer
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# --- The Samba password is set by hand, never by Ansible ----------------------
+- name: Check that the Samba user has a password
+  ansible.builtin.command: pdbedit -L -u {{ samba_user }}
+  register: samba_pdbedit
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Reminder if the Samba password isn't set yet
+  ansible.builtin.debug:
+    msg: "No Samba password for {{ samba_user }} yet. Run on the box: sudo smbpasswd -a {{ samba_user }}"
+  when: samba_pdbedit.rc != 0

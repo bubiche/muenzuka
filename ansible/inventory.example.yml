@@ -1,0 +1,11 @@
+# Template for inventory.yml (kept private). Everything personal about the
+# setup is here; the roles, compose.yml and scripts only read these variables.
+all:
+  hosts:
+    safehouse:
+      ansible_host: safehouse.example-tailnet.ts.net   # MagicDNS name over Tailscale SSH
+      ansible_user: admin
+      homelab_user: admin                              # login, sudo, Samba and file owner
+      homelab_lan_subnet: 192.168.1.0/24               # LAN allowed for DNS and break-glass SSH
+      homelab_ts_fqdn: safehouse.example-tailnet.ts.net
+      homelab_repo_url: git@github.com:you/homelab.git # what the weekly pull clones (read-only deploy key)

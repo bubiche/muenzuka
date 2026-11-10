@@ -1,0 +1,240 @@
+# --- Updates ---------------------------------------------------------------
+- name: Update tooling is installed
+  ansible.builtin.apt:
+    name: [unattended-upgrades, needrestart]
+    state: present
+    install_recommends: false
+
+- name: unattended-upgrades also updates Tailscale and Docker, never reboots
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    mode: "0644"
+    content: |
+      // Managed by Ansible (homelab repo, role base).
+      Unattended-Upgrade::Origins-Pattern {
+          "origin=Docker,label=Docker CE";
+          "origin=Tailscale";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+
+- name: Weekly reboot, only if an update asked for one (service)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/reboot-if-required.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role base).
+      [Unit]
+      Description=Reboot if /run/reboot-required exists
+
+      [Service]
+      Type=oneshot
+      # Never in the middle of a backup (restic would be killed mid-upload) or
+      # a weekly pull. is-active succeeds if any listed unit is active.
+      ExecStart=/bin/sh -c 'if [ -f /run/reboot-required ] && ! systemctl is-active --quiet homelab-backup.service homelab-pull.service; then systemctl reboot; fi'
+  notify: daemon-reload
+
+- name: Weekly reboot, only if an update asked for one (timer)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/reboot-if-required.timer
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role base).
+      # Persistent=false: a missed window must not reboot the box right after boot.
+      [Unit]
+      Description=Weekly reboot window
+
+      [Timer]
+      OnCalendar={{ base_reboot_oncalendar }}
+      Persistent=false
+
+      [Install]
+      WantedBy=timers.target
+  notify: daemon-reload
+
+- name: Apply unit changes before enabling the timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Weekly reboot timer is enabled
+  ansible.builtin.systemd_service:
+    name: reboot-if-required.timer
+    enabled: true
+    state: started
+  # On a first dry run the unit file doesn't exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Read the snap refresh window
+  ansible.builtin.command: snap get system refresh.timer
+  register: base_snap_timer
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Snaps refresh on Sunday morning
+  ansible.builtin.command: snap set system refresh.timer={{ base_snap_refresh_timer }}
+  when: base_snap_timer.stdout | trim != base_snap_refresh_timer
+  changed_when: true
+
+# --- Logs ------------------------------------------------------------------
+- name: journald is capped at 200M
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/size.conf
+    mode: "0644"
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+  notify: restart journald
+
+# --- Headless display + Sunshine ----------------------------------------------
+- name: Force the display connector on with no monitor attached
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/90-headless-display.cfg
+    mode: "0644"
+    content: |
+      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT video={{ base_display_connector }}:{{ base_display_mode }}"
+  notify: update-grub
+
+# Sunshine's web UI rewrites sunshine.conf, so only these keys are managed.
+# HEVC on vaapi crashes the stream on this box; force H.264.
+- name: Sunshine uses H.264 only
+  ansible.builtin.lineinfile:
+    path: "/home/{{ base_user }}/.config/sunshine/sunshine.conf"
+    regexp: '^{{ item }}\s*='
+    line: "{{ item }} = 1"
+    owner: "{{ base_user }}"
+    group: "{{ base_user }}"
+    mode: "0664"
+    create: true
+  loop: [hevc_mode, av1_mode]
+
+# --- Break-glass SSH over the LAN --------------------------------------------
+- name: Mac's break-glass key is authorized
+  ansible.posix.authorized_key:
+    user: "{{ base_user }}"
+    key: "{{ lookup('ansible.builtin.file', 'breakglass.pub') }}"
+
+- name: sshd is key-only, no root
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-breakglass.conf
+    mode: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+  notify: reload sshd
+
+- name: openssh-server is installed (after the drop-in above)
+  ansible.builtin.apt:
+    name: openssh-server
+    state: present
+    install_recommends: false
+
+# --- Firewall (phase 6; off until base_ufw_enabled is true) -------------------
+- name: Firewall rules and enable
+  when: base_ufw_enabled
+  block:
+    - name: Allow everything over Tailscale
+      community.general.ufw:
+        rule: allow
+        direction: in
+        interface: tailscale0
+
+    - name: Allow break-glass SSH from the LAN
+      community.general.ufw:
+        rule: allow
+        src: "{{ base_lan_subnet }}"
+        port: "22"
+        proto: tcp
+
+    - name: Allow Sunshine TCP from the LAN
+      community.general.ufw:
+        rule: allow
+        src: "{{ base_lan_subnet }}"
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ base_sunshine_tcp_ports }}"
+
+    - name: Allow Sunshine UDP from the LAN
+      community.general.ufw:
+        rule: allow
+        src: "{{ base_lan_subnet }}"
+        port: "{{ base_sunshine_udp_ports }}"
+        proto: udp
+
+    # Documentation only: Docker-published ports bypass ufw.
+    - name: Allow DNS from the LAN
+      community.general.ufw:
+        rule: allow
+        src: "{{ base_lan_subnet }}"
+        port: "53"
+
+    - name: Deny incoming by default and enable
+      community.general.ufw:
+        state: enabled
+        direction: incoming
+        policy: deny
+
+# --- Dead-man's switch: "box alive" ping to healthchecks.io every 15 min -------
+- name: /etc/homelab exists (root only)
+  ansible.builtin.file:
+    path: /etc/homelab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: healthchecks.io ping URLs (secret, from Ansible Vault)
+  ansible.builtin.copy:
+    dest: /etc/homelab/healthchecks.env
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      HC_ALIVE={{ vault_hc_alive_url }}
+      HC_BACKUP_CRITICAL={{ vault_hc_backup_critical_url }}
+      HC_BACKUP_DOCUMENTS={{ vault_hc_backup_documents_url }}
+      HC_ANSIBLE_PULL={{ vault_hc_ansible_pull_url }}
+  no_log: true
+
+- name: Alive ping (service)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/hc-alive.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role base).
+      [Unit]
+      Description=Ping healthchecks.io: box is alive
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/etc/homelab/healthchecks.env
+      ExecStart=/bin/sh -c 'exec /usr/bin/curl -fsS -m 10 --retry 5 -o /dev/null "$HC_ALIVE"'
+  notify: daemon-reload
+
+- name: Alive ping (timer)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/hc-alive.timer
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role base).
+      [Unit]
+      Description=Ping healthchecks.io every 15 minutes
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=15min
+
+      [Install]
+      WantedBy=timers.target
+  notify: daemon-reload
+
+- name: Apply unit changes before enabling the alive timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Alive timer is enabled
+  ansible.builtin.systemd_service:
+    name: hc-alive.timer
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"

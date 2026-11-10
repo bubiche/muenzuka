@@ -1,0 +1,11 @@
+# Docker's apt signing key; the role refuses a key with any other fingerprint.
+docker_gpg_fingerprint: "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+# The box's Tailscale name, for the URLs in compose.yml (written to
+# /opt/homelab/.env as TS_FQDN; compose reads it from there).
+docker_ts_fqdn: "{{ homelab_ts_fqdn }}"
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin

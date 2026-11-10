@@ -1,0 +1,78 @@
+# Weekly report pushed to the phone via the box's own ntfy (scripts/report.py):
+# updates, reboot pending, failed units, containers, disk, SSD health,
+# Google storage (warns at 80%), latest backups, last backup and pull.
+- name: smartmontools is installed (SSD health for the report)
+  ansible.builtin.apt:
+    name: smartmontools
+    state: present
+    install_recommends: false
+
+# The report reads SMART weekly; smartd would only log and try to mail root.
+- name: smartd is stopped and disabled
+  ansible.builtin.systemd_service:
+    name: smartmontools
+    enabled: false
+    state: stopped
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Where the report is sent (the box's own ntfy)
+  ansible.builtin.copy:
+    dest: /etc/homelab/ntfy.env
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      NTFY_URL={{ report_ntfy_url }}
+
+- name: Report script is installed
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/report.py"
+    dest: /usr/local/sbin/homelab-report
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Weekly report (service)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-report.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role report).
+      [Unit]
+      Description=Weekly homelab report to ntfy
+      Wants=network-online.target
+      After=network-online.target docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/homelab-report
+      TimeoutStartSec=30min
+      Nice=10
+  notify: daemon-reload
+
+- name: Weekly report (timer)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-report.timer
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role report).
+      [Unit]
+      Description=Weekly homelab report
+
+      [Timer]
+      OnCalendar={{ report_oncalendar }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify: daemon-reload
+
+- name: Apply unit changes before enabling the report timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Weekly report timer is enabled
+  ansible.builtin.systemd_service:
+    name: homelab-report.timer
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
