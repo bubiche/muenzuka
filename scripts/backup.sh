@@ -3,7 +3,9 @@
 # Nightly backup to Google Drive. Installed by Ansible (role backup) as
 # /usr/local/sbin/homelab-backup and run by homelab-backup.timer at 02:00.
 #
-#   1. critical:  Vaultwarden dump, then restic backup of /opt/homelab
+#   1. critical:  Vaultwarden dump, Immich database dump, then restic backup of
+#                 /opt/homelab (a failed Immich dump still backs up the rest,
+#                 then fails the run)
 #   2. documents: restic backup of /srv/files/documents, skipped (and alerted)
 #                 when Drive has under 2GB free
 #
@@ -28,6 +30,7 @@ REPO_CRITICAL=rclone:gdrive:homelab-critical
 REPO_DOCUMENTS=rclone:gdrive:homelab-documents
 STACK=/opt/homelab
 VW_DATA=$STACK/vaultwarden/data
+IMMICH_DUMPS=$STACK/immich/dumps   # the photo library (/srv/immich) is never backed up
 DOCUMENTS=/srv/files/documents
 RESTORE_STATE=/var/lib/homelab/restore-test   # read by the weekly report
 MIN_FREE_BYTES=$((2 * 1024 * 1024 * 1024))
@@ -68,12 +71,38 @@ maintenance() {
     fi
 }
 
+# dump_immich: Immich's database, dumped the way Immich dumps it itself
+# (pg_dump --clean --if-exists | gzip --rsyncable, so restic can dedup the
+# unchanged parts) and named like Immich's own backups, so its restore page
+# accepts it (RUNBOOK → Immich). Keeps 7 days. Explicit returns, not set -e:
+# it's called after ||, because a failed dump must not stop the vault's upload.
+dump_immich() {
+    local version pg out
+    version=$(docker inspect -f '{{.Config.Image}}' immich_server) || return 1
+    version=${version##*:}
+    pg=$(docker exec immich_postgres psql --username=postgres -tAc 'show server_version') || return 1
+    pg=${pg%% *}
+    out="$IMMICH_DUMPS/immich-db-backup-$(date +%Y%m%dT%H%M%S)-$version-pg$pg.sql.gz"
+    rm -f "$IMMICH_DUMPS"/*.tmp
+    docker exec immich_postgres pg_dump --clean --if-exists --dbname=immich --username=postgres \
+        | gzip --rsyncable > "$out.tmp" || { rm -f "$out.tmp"; return 1; }
+    mv "$out.tmp" "$out" || return 1
+    echo "Wrote ${out##*/} ($(du -h "$out" | cut -f1))"
+    # Rotation is housekeeping: a failure here must not mark a good dump as failed.
+    find "$IMMICH_DUMPS" -maxdepth 1 -name 'immich-db-backup-*.sql.gz' -mtime +6 -print -delete \
+        || echo "Warning: could not delete old Immich dumps"
+    return 0
+}
+
 # Each job runs in a subshell with set -e: the first failing command ends it.
 job_critical() (
     set -e
     echo "== Vaultwarden: safe SQLite dump"
     docker exec vaultwarden /vaultwarden backup
     find "$VW_DATA" -maxdepth 1 -name 'db_*.sqlite3' -mtime +6 -print -delete
+    echo "== Immich: database dump"
+    immich_rc=0
+    dump_immich || immich_rc=$?
     echo "== restic backup -> $REPO_CRITICAL"
     restic -r "$REPO_CRITICAL" backup --tag critical --exclude-caches \
         --exclude "$VW_DATA/db.sqlite3" \
@@ -83,16 +112,22 @@ job_critical() (
         --exclude "$VW_DATA/tmp" \
         --exclude "$STACK/adguard/work" \
         --exclude "$STACK/ntfy" \
+        --exclude "$STACK/immich/postgres*" \
         "$STACK"
     maintenance "$REPO_CRITICAL"
     if [ "$(date +%d)" = 01 ]; then
         job_restore_test
     fi
+    if [ "$immich_rc" -ne 0 ]; then
+        echo "FAILED: the Immich database dump (exit $immich_rc). Everything else was backed up."
+        exit 1
+    fi
 )
 
 # Restore the latest critical snapshot into a throwaway dir (tmpfs: the
 # secrets in it never touch the disk), verify every file against the
-# snapshot, and check that the Vaultwarden dump opens and holds the vault.
+# snapshot, check that the Vaultwarden dump opens and holds the vault, and
+# that the newest Immich dump is a whole gzip file of a complete pg_dump.
 # The result goes to $RESTORE_STATE for the weekly report. This proves the
 # backup is readable; the yearly drill from the Mac proves the break-glass
 # sheet is enough (RUNBOOK: Restore drill).
@@ -130,6 +165,14 @@ sys.exit(0 if ok == "ok" and users >= 1 and items >= 1 else 1)
 PY
     ) || { detail="snapshot $snap, ${dump##*/}, $counts (needs integrity_check ok, at least 1 user and 1 item)"; echo "$detail"; false; }
     detail="snapshot $snap, ${dump##*/}, $counts"
+    step="Immich dump"
+    idump=$(find "$dir$IMMICH_DUMPS" -maxdepth 1 -name 'immich-db-backup-*.sql.gz' | sort | tail -n 1)
+    [ -n "$idump" ] || { echo "No immich-db-backup-*.sql.gz dump in the snapshot"; false; }
+    gzip -t "$idump"
+    # pg_dump writes this line last: without it the dump was cut short.
+    gzip -dc "$idump" | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+        || { echo "Immich dump is incomplete (no 'dump complete' line): ${idump##*/}"; false; }
+    detail="$detail, ${idump##*/}"
     echo "Restore test passed: $detail"
 )
 

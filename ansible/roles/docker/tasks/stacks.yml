@@ -16,6 +16,36 @@
       # Managed by Ansible (role docker, from the inventory).
       TS_FQDN={{ docker_ts_fqdn }}
 
+# Immich's database password, from the Vault. A separate root-only file (not
+# .env, which is 0644): compose passes it to the Immich server and Postgres only.
+# Postgres reads it only when the database is first created (RUNBOOK → Immich).
+- name: Immich secrets (immich.env)
+  ansible.builtin.copy:
+    dest: /opt/homelab/immich.env
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      # Managed by Ansible (role docker, from the Vault).
+      DB_PASSWORD={{ vault_immich_db_password }}
+      POSTGRES_PASSWORD={{ vault_immich_db_password }}
+  no_log: true
+
+# Created before compose starts, so Docker doesn't make them root 0755.
+# /opt/homelab/immich holds the live database (Postgres owns its own
+# postgres/ folder; don't manage it here) and the nightly dumps.
+- name: Immich folders (library, database, dumps) are private
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /srv/immich                  # the photo library (a copy; not backed up)
+    - /opt/homelab/immich
+    - /opt/homelab/immich/dumps    # scripts/backup.sh writes the database dumps here
+
 - name: compose.yml from the repo
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../compose.yml"

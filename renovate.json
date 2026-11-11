@@ -20,6 +20,23 @@
       "automerge": false
     },
     {
+      "description": "Immich: server and machine learning must run the same version, so one PR updates both. Every update waits for a manual merge: Immich breaks things in minor releases too.",
+      "matchPackageNames": ["ghcr.io/immich-app/immich-server", "ghcr.io/immich-app/immich-machine-learning"],
+      "groupName": "Immich",
+      "automerge": false,
+      "prBodyNotes": [
+        "**Before merging:** read the release notes for every version in between (breaking changes are listed at the top), compare that release's `docker-compose.yml` with ours (postgres/valkey pins, new settings), and run `sudo homelab-backup critical` on the box first so a fresh database dump is in the backup."
+      ]
+    },
+    {
+      "description": "Immich's Postgres and Valkey: pinned by Immich (tag + digest). Change them only when an Immich release does; never a Postgres major by hand.",
+      "matchPackageNames": ["ghcr.io/immich-app/postgres", "docker.io/valkey/valkey"],
+      "automerge": false,
+      "prBodyNotes": [
+        "**Usually close this PR:** take these pins from Immich's release `docker-compose.yml` instead, when updating Immich."
+      ]
+    },
+    {
       "description": "rclone: the pinned checksum must change in the same PR, and the Mac should match.",
       "matchPackageNames": ["rclone/rclone"],
       "automerge": false,

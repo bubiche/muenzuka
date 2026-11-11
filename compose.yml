@@ -64,3 +64,79 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # Immich (photo library): a COPY of the phone's photos; the phone's own cloud
+  # stays the primary store. Based on Immich's official docker-compose.yml and
+  # example.env for v3.3.6 (github.com/immich-app/immich/releases/tag/v3.3.6).
+  # Changes from upstream: exact tags instead of ${IMMICH_VERSION}, no .env
+  # (paths inline, the password in immich.env), the web port on loopback,
+  # restart: unless-stopped. Server and machine learning stay on the same
+  # version; Renovate groups them and every Immich update waits for a manual
+  # merge (minors can break). On an update, compare upstream's release
+  # docker-compose.yml for postgres/valkey pin changes.
+  # Library: /srv/immich (NOT backed up: it's a copy). Database: the nightly
+  # dump in /opt/homelab/immich/dumps goes to restic critical (scripts/backup.sh);
+  # the live Postgres files are excluded.
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v3.3.6
+    container_name: immich_server
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Singapore
+      DB_HOSTNAME: immich-database
+      DB_USERNAME: postgres
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: immich-redis
+    # DB_PASSWORD (and POSTGRES_PASSWORD), root 0600, written by Ansible from the Vault.
+    env_file: ./immich.env
+    ports:
+      # Loopback only; tailscale serve → https://<TS_FQDN>:8449
+      - "127.0.0.1:2283:2283"
+    volumes:
+      - /srv/immich:/data
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      - immich-redis
+      - immich-database
+    healthcheck:
+      disable: false
+
+  # CPU only (no hardware acceleration).
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3.3.6
+    container_name: immich_machine_learning
+    restart: unless-stopped
+    volumes:
+      # Downloaded models (re-downloadable, so not backed up).
+      - immich-model-cache:/cache
+    healthcheck:
+      disable: false
+
+  # Valkey and Postgres images exactly as Immich pins them (tag + digest).
+  immich-redis:
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    container_name: immich_redis
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+
+  immich-database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    container_name: immich_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    # POSTGRES_PASSWORD. Read only when the database is first created: changing
+    # it later also needs ALTER USER (RUNBOOK → Immich).
+    env_file: ./immich.env
+    volumes:
+      # Live database files: excluded from the backup (the dump is backed up).
+      - ./immich/postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      disable: false
+
+volumes:
+  immich-model-cache:

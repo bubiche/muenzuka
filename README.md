@@ -10,6 +10,7 @@ This is the shareable part of a private repo, exported by a script and synced au
   - AdGuard Home: DNS and ad blocking for the LAN and the tailnet.
   - Vaultwarden: password manager.
   - ntfy: push notifications to a phone.
+  - Immich: a photo library, kept as a copy of the phone's photos (machine learning on the CPU).
   - Samba (on the host, role `samba`): one file share.
   - Image versions are pinned exactly; Renovate opens update PRs.
 - **Nothing is exposed to the internet:**
@@ -17,8 +18,8 @@ This is the shareable part of a private repo, exported by a script and synced au
   - ufw allows the LAN only DNS, game streaming (Sunshine) and SSH with a break-glass key (passwords are off). Everything else goes through Tailscale.
   - Samba accepts tailnet addresses only, in ufw and in `hosts allow`.
 - **Backups (`scripts/backup.sh`, role `backup`):**
-  - restic to Google Drive through rclone, nightly. Two repos: `critical` (the stack, with a safe SQLite dump of Vaultwarden first) and `documents` (the file share).
-  - Retention, prune and check every Saturday. On the 1st of the month, `check --read-data-subset=2%`, then an automatic restore test of `critical`: restore to tmpfs with `--verify`, check the key files, and open the Vaultwarden dump.
+  - restic to Google Drive through rclone, nightly. Two repos: `critical` (the stack, with a safe SQLite dump of Vaultwarden and a `pg_dump` of Immich's database first; the photo library itself is a copy and isn't backed up) and `documents` (the file share).
+  - Retention, prune and check every Saturday. On the 1st of the month, `check --read-data-subset=2%`, then an automatic restore test of `critical`: restore to tmpfs with `--verify`, check the key files, open the Vaultwarden dump, and test the Immich dump.
   - The documents backup is skipped, with an alert, when Drive has under 2GB free.
   - Each repo pings its own healthchecks.io check with the exit code and the log tail.
 - **Updates, without anyone logging in:**

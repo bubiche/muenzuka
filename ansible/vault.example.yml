@@ -8,3 +8,5 @@ vault_hc_backup_critical_url: "https://hc-ping.com/00000000-0000-0000-0000-00000
 vault_hc_backup_documents_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
 vault_hc_ansible_pull_url: "https://hc-ping.com/00000000-0000-0000-0000-000000000000"
 vault_restic_password: "the password already in /etc/restic/password"
+# Immich's Postgres password: letters and digits only (openssl rand -hex 24).
+vault_immich_db_password: "letters and digits only"
