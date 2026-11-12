@@ -6,6 +6,9 @@ base_lan_subnet: "{{ homelab_lan_subnet }}"
 base_display_connector: HDMI-A-3
 base_display_mode: 1920x1080@60e
 
+# Ubuntu archive (not a country mirror; see the sources task).
+base_apt_mirror: http://archive.ubuntu.com/ubuntu/
+
 # Weekly maintenance windows (box's local time, Asia/Singapore).
 base_snap_refresh_timer: "sun,03:00"
 base_reboot_oncalendar: "Sun 04:00"

@@ -1,4 +1,30 @@
 # --- Updates ---------------------------------------------------------------
+# The installer picks a country mirror (sg.archive.ubuntu.com, run by a third
+# party). It went fully 404 on 2026-11-12, so pin the main archive instead.
+- name: Ubuntu apt sources use the main archive
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ubuntu.sources
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role base).
+      Types: deb
+      URIs: {{ base_apt_mirror }}
+      Suites: {{ ansible_facts['distribution_release'] }} {{ ansible_facts['distribution_release'] }}-updates {{ ansible_facts['distribution_release'] }}-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+      Types: deb
+      URIs: http://security.ubuntu.com/ubuntu/
+      Suites: {{ ansible_facts['distribution_release'] }}-security
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+  register: base_apt_sources
+
+- name: Refresh the package lists after a sources change
+  ansible.builtin.apt:
+    update_cache: true
+  when: base_apt_sources is changed
+
 - name: Update tooling is installed
   ansible.builtin.apt:
     name: [unattended-upgrades, needrestart]
