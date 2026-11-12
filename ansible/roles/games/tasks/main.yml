@@ -1,0 +1,38 @@
+# Ubuntu's Wine 10 runs 32-bit Windows programs in WoW64 mode from the amd64
+# packages alone, so no i386 architecture is needed. Recommends are skipped
+# (lean); `ntlm_auth not found` in Muh_Wine.log is harmless.
+- name: Wine is installed
+  ansible.builtin.apt:
+    name: wine
+    state: present
+    install_recommends: false
+
+- name: The user's applications folder exists
+  ansible.builtin.file:
+    path: "/home/{{ games_user }}/.local/share/applications"
+    state: directory
+    owner: "{{ games_user }}"
+    group: "{{ games_user }}"
+    mode: "0700"
+
+# From https://wiki.muhro.eu/How_To_Play_on_Linux. Muh_Patcher is a native
+# Linux program that starts the Windows client under Wine. It runs as a
+# Wayland window on 26.04, so the wiki's GDK_BACKEND=x11 isn't needed.
+- name: MuhRO menu entry
+  ansible.builtin.copy:
+    dest: "/home/{{ games_user }}/.local/share/applications/MuhRO.desktop"
+    owner: "{{ games_user }}"
+    group: "{{ games_user }}"
+    mode: "0644"
+    content: |
+      # Managed by Ansible (homelab repo, role games).
+      [Desktop Entry]
+      Type=Application
+      Name=MuhRO
+      Comment=MuhRO patcher and game
+      Exec=env WINEDEBUG=-all {{ games_muhro_dir }}/Muh_Patcher
+      Path={{ games_muhro_dir }}
+      Icon={{ games_muhro_dir }}/muhro.ico
+      Terminal=false
+      StartupNotify=true
+      Categories=Game;

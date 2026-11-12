@@ -1,0 +1,7 @@
+# Games played on the box's desktop, streamed to the Mac with Moonlight.
+games_user: "{{ homelab_user }}"
+
+# MuhRO (Ragnarok Online private server). The client itself is not managed
+# here: it is downloaded by hand (see RUNBOOK "MuhRO"), and the patcher
+# installs itself into this folder. Keep the path free of spaces.
+games_muhro_dir: "/home/{{ games_user }}/Games/muhro/MuhRO"
